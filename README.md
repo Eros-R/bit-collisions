@@ -1,3 +1,3 @@
 # Fingerprints and Bit Collisions
 
-Notebook and database 
+i know its frowned upon but i prefer jupyter lab ok... 
