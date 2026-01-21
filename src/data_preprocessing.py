@@ -2,17 +2,25 @@
 
 from enum import Enum
 from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors
 from collections import defaultdict
 import random
 import re
 
+from collections import Counter
 import rdkit
 from rdkit import RDLogger
+from sqlalchemy.sql.schema import HasSchemaAttr
 
 # We could infer type based on string, but doubt it's relevant.
 class IdentifierType(Enum):
     smiles = "smiles"
     inchi = "inchi"
+
+class RepresentationType(Enum):
+    ecfp4 = "ecfp4"
+    map4 = "map4"
+    ... #?
 
 class CompoundEntry:
     # init w/ one "type"
@@ -24,6 +32,8 @@ class CompoundEntry:
         self._mol = None
         self._scaffold = None
         self._target = target #agnostic "target" does not allow multiple targets.
+        self._representation = None
+        self._bifinfo = None # we can propegate this later if we want to track
     def get_mol(self):
         if self.id_type is IdentifierType.inchi:
             self._mol = Chem.inchi.MolFromInchi(inchi = self.id, sanitize=True, removeHs=True, logLevel=None, treatWarningAsError=False)
@@ -43,6 +53,17 @@ class CompoundEntry:
         self._scaffold = scaffold_smiles
     def set_target(self, target_value):
         self._target = target_value
+    # need params to be equal? or just take expand and pray?
+    def set_representation(self,representation, fold = False):
+        # NOTE: maybe later fold self?
+        if not isinstance(representation, RepresentationType):
+            raise TypeError("unrecognized representation type requested")
+        if representation is RepresentationType.ecfp4:
+            bitinfo = {}
+            unfolded = rdMolDescriptors.GetMorganFingerprint(self._mol,radius = 2, bitInfo=bitinfo)
+            self._bifinfo = bitinfo
+            self._representation = unfolded
+
 
 # we can derive the amount of atoms directly from the Inchi string :)
 def n_atoms_from_inchi(inchi:str):
@@ -63,6 +84,7 @@ class CompoundDataset:
         if entries is not None:
             for entry in entries:
                 self.add(entry)
+        self.bit_collisions = None
     def add(self,entry):
         if not isinstance(entry, CompoundEntry):
             raise TypeError("Dataset should consist of CompoundEntry objects")
@@ -121,27 +143,35 @@ class CompoundDataset:
             entry.get_mol_scaffold()
     # there are some packages that do this, but its simple to implement, so no external matching nonsense
     # this also means we can perhaps bin later, or other strat target.
-    def scaffold_stratified_kfold(self, k:int=5,seed:int=1508):
+    # WRONG -> THEY SHOULD NOT SHARE SPLITS?
+    def scaffold_exclusive_kfold(self, k:int=5,seed:int=1508):
         groups:defaultdict = defaultdict(list)
+        acyclic_scaffold = "acyclic"
+        acyclic_entries = []
         for entry in self._entries:
-            groups[entry.get_mol_scaffold()].append(entry)
-        # randomize scaffold groups
+            scaffold = entry.get_mol_scaffold()
+            if scaffold == acyclic_scaffold:
+                acyclic_entries.append(entry)
+            else:
+                groups[scaffold].append(entry)
         seeded_random = random.Random(seed)
-        for group in groups.values():
-            seeded_random.shuffle(group)
-        folds = [[] for _ in range(k)]
-
         scaffold_list = list(groups.values())
-        scaffold_list.sort(key=lambda g: len(g), reverse=True)
+        seeded_random.shuffle(scaffold_list)
+        folds = [[] for _ in range(k)]
         for i, group in enumerate(scaffold_list):
-            fold_index = i % k #haha fold, like in fingerprint (modulo)
+            fold_index = i % k
             folds[fold_index].extend(group)
+        seeded_random.shuffle(acyclic_entries)
+        for i, entry in enumerate(acyclic_entries):
+            fold_index = i % k
+            folds[fold_index].append(entry)
         split_list = []
         for i in range(k):
             test_entries = folds[i]
-            train_entries = [e for j, fold in enumerate(folds) if j !=i for e in fold]
+            train_entries = [e for j, fold in enumerate(folds) if j != i for e in fold]
             split_list.append((CompoundDataset(train_entries), CompoundDataset(test_entries)))
         return split_list
+
     def to_dict(self):
     #NOTE: should be expanded with relevant slop for tables.
         return[{
@@ -156,6 +186,25 @@ class CompoundDataset:
     # NOTE:some wonk, think it would be smarter to do this bottom-up. (entry construction)
     def set_targets(self,target_values):
         assert len(self) == len(target_values), "Unequal number of target values and compounds"
+    def fold_ecfp(self, bits = None):
+        bits = bits or 1024
+        collisions = defaultdict(set) #not list :)
+        for entry in self._entries:
+            if entry._representation is None:
+                entry.set_representation(RepresentationType.ecfp4)
+            folded = [0] * bits
+            for env_hash in entry._representation.GetNonzeroElements():
+                bit = env_hash % bits
+                folded[bit] = 1
+                collisions[bit].add(env_hash)
+            entry._representation = folded # maybe not update, but what use is unfolded atp.
+        self.bit_collisions = {bit:hashes for bit, hashes in collisions.items() if len(hashes) > 1}
+
+    def print_scaffoldstats(self):
+        scaffolds = [x._scaffold for x in self._entries]
+        print(Counter(scaffolds))
+    
+
 
 def sybau_rdkit():
     lg = RDLogger.logger()
@@ -175,15 +224,18 @@ def main():
     print(len(test_ds))
     test_ds.clean_compounds()
     test_ds.build_scaffolds()
+    test_ds.print_scaffoldstats()
     # little print to show  some scaffolds
     # boohoo, warning because DS can be initialized empty
     for x in test_ds[30:50]:
         print(x._scaffold)
-    split_list = test_ds.scaffold_stratified_kfold(k = 5, seed = 1508)
-    print(split_list)
-    print(split_list[0][1].to_dict()) # test of fold 111
-
-
-
+        
+    split_list = test_ds.scaffold_exclusive_kfold(k = 5, seed = 1508)
+    test_ds.fold_ecfp()
+    print(test_ds.bit_collisions)
+    collision_counts = {bit: len(hashes) for bit, hashes in test_ds.bit_collisions.items()}
+    print(collision_counts)
+    print(len(collision_counts))
+    print((len(collision_counts)/1024)*100)
 if __name__ == "__main__":
     main()
