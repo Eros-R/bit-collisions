@@ -1,5 +1,4 @@
-# Ignore the placeholder name.
-# want to achieve a few things here
+# Dataset & Entry classes for downstream ML tasks
 
 from enum import Enum
 from rdkit import Chem
@@ -17,13 +16,14 @@ class IdentifierType(Enum):
 
 class CompoundEntry:
     # init w/ one "type"
-    def __init__(self, id, id_type):
+    def __init__(self, id, id_type, target = None):
         if not isinstance(id_type, IdentifierType):
             raise TypeError("unrecognized ID type")
         self.id = id
         self.id_type = id_type
         self._mol = None
         self._scaffold = None
+        self._target = target #agnostic "target" does not allow multiple targets.
     def get_mol(self):
         if self.id_type is IdentifierType.inchi:
             self._mol = Chem.inchi.MolFromInchi(inchi = self.id, sanitize=True, removeHs=True, logLevel=None, treatWarningAsError=False)
@@ -36,12 +36,13 @@ class CompoundEntry:
             self.get_mol()
         u_scaffold = Chem.MurckoDecompose(self._mol)
         Chem.SanitizeMol(u_scaffold)
-        # Doubt we need the mol so we can save the SMILES for strat.
         # WARNING: This is not a valid smiles to use downstream. 
-        scaffold_smiles = Chem.MolToSmiles(u_scaffold)
+        scaffold_smiles = Chem.MolToSmiles(u_scaffold, canonical=True)
         if len(scaffold_smiles) == 0: # decompose returns ring systems. so no cyclic = NONE. need to tag.
             scaffold_smiles = "acyclic"
         self._scaffold = scaffold_smiles
+    def set_target(self, target_value):
+        self._target = target_value
 
 # we can derive the amount of atoms directly from the Inchi string :)
 def n_atoms_from_inchi(inchi:str):
@@ -147,10 +148,14 @@ class CompoundDataset:
             "identifier": entry.id,
             "id_type": entry.id_type.name,
             "scaffold": entry._scaffold,
+            "target":entry._target,
             # etc, etc,
         }
         for entry in self._entries
     ]
+    # NOTE:some wonk, think it would be smarter to do this bottom-up. (entry construction)
+    def set_targets(self,target_values):
+        assert len(self) == len(target_values), "Unequal number of target values and compounds"
 
 def sybau_rdkit():
     lg = RDLogger.logger()
@@ -159,21 +164,24 @@ def sybau_rdkit():
 
 def main():
     sybau_rdkit()
-    # demo. might be a bit more than needed
+    # pandas only used in demo so...
     import pandas as pd
     input_df = pd.read_csv("~/bit-collisions/substances.csv")
     inchi_list = input_df["inchi"].values.tolist()
-    test_ds = CompoundDataset([CompoundEntry(key,IdentifierType.inchi) for key in inchi_list])
+    dummy_targets = input_df["inchi_id"]
+    entries = zip(inchi_list, dummy_targets)
+    test_ds = CompoundDataset([CompoundEntry(id,IdentifierType.inchi,target) for (id,target) in entries])
 
     print(len(test_ds))
     test_ds.clean_compounds()
     test_ds.build_scaffolds()
     # little print to show  some scaffolds
+    # boohoo, warning because DS can be initialized empty
     for x in test_ds[30:50]:
         print(x._scaffold)
-    split_list = test_ds.scaffold_stratified_kfold()
+    split_list = test_ds.scaffold_stratified_kfold(k = 5, seed = 1508)
     print(split_list)
-    print(split_list[0][1].to_dict()) # test of fold 1
+    print(split_list[0][1].to_dict()) # test of fold 111
 
 
 
