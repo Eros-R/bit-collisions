@@ -1,0 +1,5 @@
+# general setup for full pipeline:
+data_source : "..."
+representation_types : [ecfp4]
+bit_lengths : [1024]
+models : [rf] #maybe good to keep this hardcoded in module level -> point to models.
