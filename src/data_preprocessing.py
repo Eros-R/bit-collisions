@@ -8,9 +8,7 @@ import random
 import re
 
 from collections import Counter
-import rdkit
 from rdkit import RDLogger
-from sqlalchemy.sql.schema import HasSchemaAttr
 
 # We could infer type based on string, but doubt it's relevant.
 class IdentifierType(Enum):
@@ -32,7 +30,7 @@ class CompoundEntry:
         self._mol = None
         self._scaffold = None
         self._target = target #agnostic "target" does not allow multiple targets.
-        self._representation = None
+        self._representation = CompoundRepresentation(self)
         self._bifinfo = None # we can propegate this later if we want to track
     def get_mol(self):
         if self.id_type is IdentifierType.inchi:
@@ -54,16 +52,65 @@ class CompoundEntry:
     def set_target(self, target_value):
         self._target = target_value
     # need params to be equal? or just take expand and pray?
-    def set_representation(self,representation, fold = False):
-        # NOTE: maybe later fold self?
-        if not isinstance(representation, RepresentationType):
-            raise TypeError("unrecognized representation type requested")
-        if representation is RepresentationType.ecfp4:
-            bitinfo = {}
-            unfolded = rdMolDescriptors.GetMorganFingerprint(self._mol,radius = 2, bitInfo=bitinfo)
-            self._bifinfo = bitinfo
-            self._representation = unfolded
 
+
+
+class CompoundRepresentation:
+    # holder class for representation (unfolded/folded etc.)
+    def __init__(self, entry):
+        self._entry = entry #a compound entry
+        self._unfolded = None
+        self._folded_counts = {}
+        self._folded = {} # can dump multiple "folds" to single dict
+        self._self_collisions = None
+        self._bifinfo = None
+    def set_representation(self, representation):
+        if not isinstance(representation, RepresentationType):
+            raise TypeError("Unrecognized representation type")
+        # kill set rep.
+        self._unfolded = None
+        self._folded = None
+        self._folded_counts = None
+        self._self_collisions = None
+        self._bifinfo = None
+
+        if representation is RepresentationType.ecfp4:
+            bitinfo = {} # radius is hard to acces!
+            self._unfolded = rdMolDescriptors.GetMorganFingerprint(self._entry._mol, radius = 2, bitInfo=bitinfo)
+            self._bifinfo = bitinfo
+    def get_folded(self,bits = 1024):
+        if self._unfolded is None:
+            raise RuntimeError("representation not set")
+        if bits not in self._folded:
+            folded = [0] * bits
+            for hash in self._unfolded.GetNonzeroElements():
+                folded[hash % bits] = 1
+            self._folded[bits] = folded
+        # oop, still return the folded vec dict?\
+    #NOTE: maybe duplication > check every it?
+    def get_folded_counts(self,bits = 1024):
+        if self._unfolded is None:
+            raise RuntimeError("representation not set")
+        if bits not in self._folded_counts:
+            folded = [0] * bits
+            for hash in self._unfolded.GetNonzeroElements():
+                folded[hash % bits] += 1
+            self._folded_counts[bits] = folded
+    def get_compount_collisions(self, bits):
+        if self._unfolded is None:
+            raise RuntimeError("representation not set")
+        if bits not in self._self_collisions:
+            collisions = defaultdict(set)
+            for hash in self._unfolded.GetNonzeroElements():
+                collisions[hash % bits].add(hash)
+            self._self_collisions[bits] = {
+                k:v for k,v in collisions.items() if len(v) > 1
+            }
+    # should make getters return
+    def get_unfolded(self):
+        if self._unfolded is None:
+            raise RuntimeError("representation not set")
+        return self._unfolded
 
 # we can derive the amount of atoms directly from the Inchi string :)
 def n_atoms_from_inchi(inchi:str):
@@ -84,7 +131,7 @@ class CompoundDataset:
         if entries is not None:
             for entry in entries:
                 self.add(entry)
-        self.bit_collisions = None
+        self._dataset_collisions = {}
     def add(self,entry):
         if not isinstance(entry, CompoundEntry):
             raise TypeError("Dataset should consist of CompoundEntry objects")
@@ -183,22 +230,25 @@ class CompoundDataset:
         }
         for entry in self._entries
     ]
-    # NOTE:some wonk, think it would be smarter to do this bottom-up. (entry construction)
     def set_targets(self,target_values):
         assert len(self) == len(target_values), "Unequal number of target values and compounds"
-    def fold_ecfp(self, bits = None):
-        bits = bits or 1024
-        collisions = defaultdict(set) #not list :)
+
+    def get_dataset_collisions(self, representation, bits):
+        key = representation,bits
+        # if it is already there return.
+        if key in self._dataset_collisions:
+            return self._dataset_collisions[key]
+        collisions = defaultdict(set)
         for entry in self._entries:
-            if entry._representation is None:
-                entry.set_representation(RepresentationType.ecfp4)
-            folded = [0] * bits
-            for env_hash in entry._representation.GetNonzeroElements():
-                bit = env_hash % bits
-                folded[bit] = 1
-                collisions[bit].add(env_hash)
-            entry._representation = folded # maybe not update, but what use is unfolded atp.
-        self.bit_collisions = {bit:hashes for bit, hashes in collisions.items() if len(hashes) > 1}
+            rep = entry._representation
+            if rep._unfolded is None:
+                rep.set_representation(representation) #here radius is hardcoded,
+            unfolded = rep.get_unfolded()
+            for hash in unfolded.GetNonzeroElements():
+                collisions[hash % bits].add(hash)
+        collisions = {k:v for k,v in collisions.items() if len(v) > 1}
+        self._dataset_collisions[key] = collisions
+        return collisions
 
     def print_scaffoldstats(self):
         scaffolds = [x._scaffold for x in self._entries]
@@ -231,11 +281,11 @@ def main():
         print(x._scaffold)
         
     split_list = test_ds.scaffold_exclusive_kfold(k = 5, seed = 1508)
-    test_ds.fold_ecfp()
-    print(test_ds.bit_collisions)
-    collision_counts = {bit: len(hashes) for bit, hashes in test_ds.bit_collisions.items()}
-    print(collision_counts)
-    print(len(collision_counts))
-    print((len(collision_counts)/1024)*100)
+    collisions = test_ds.get_dataset_collisions(RepresentationType.ecfp4,1024)
+    print(collisions)
+    # unique hashes per bit
+    count_collisions = {k:len(v) for k,v in collisions.items()}
+    print(count_collisions)
+
 if __name__ == "__main__":
     main()
