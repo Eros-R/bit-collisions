@@ -36,7 +36,7 @@ class CompoundEntry:
         if self.id_type is IdentifierType.inchi:
             self._mol = Chem.inchi.MolFromInchi(inchi = self.id, sanitize=True, removeHs=True, logLevel=None, treatWarningAsError=False)
         if self.id_type is IdentifierType.smiles:
-            self._mol = Chem.MolFromSmiles(id) 
+            self._mol = Chem.MolFromSmiles(self.id) 
     # using scaffold for stratification, note may be better? 
     # https://greglandrum.github.io/rdkit-blog/posts/2024-05-31-scaffold-splits-and-murcko-scaffolds1.html
     def get_mol_scaffold(self):
@@ -219,6 +219,59 @@ class CompoundDataset:
             split_list.append((CompoundDataset(train_entries), CompoundDataset(test_entries)))
         return split_list
 
+    def scaffold_exclusive_sampling(
+        self,
+        test_fraction: float = 0.2,
+        n_samples: int = 10, #
+        seed: int = 1508
+    ):
+        groups = defaultdict(list)
+        acyclic_scaffold = "acyclic"
+        acyclic_entries = []
+
+        for entry in self._entries:
+            scaffold = entry.get_mol_scaffold()
+            if scaffold == acyclic_scaffold:
+                acyclic_entries.append(entry)
+            else:
+                groups[scaffold].append(entry)
+
+        scaffold_items = list(groups.values())
+        split_list = []
+
+        for i in range(n_samples):
+            rng = random.Random(seed + i) # note the seed +1 if wanted to reprod. later.
+            rng.shuffle(scaffold_items)
+
+            test_entries = []
+            train_entries = []
+
+            target_test_size = int(test_fraction * sum(len(g) for g in scaffold_items))
+            current_size = 0
+
+            for group in scaffold_items:
+                if current_size < target_test_size:
+                    test_entries.extend(group)
+                    current_size += len(group)
+                else:
+                    train_entries.extend(group)
+
+            rng.shuffle(acyclic_entries)
+            acyclic_test_size = int(test_fraction * len(acyclic_entries))
+            acyclic_test = acyclic_entries[:acyclic_test_size]
+            acyclic_train = acyclic_entries[acyclic_test_size:]
+
+            test_entries.extend(acyclic_test)
+            train_entries.extend(acyclic_train)
+
+            split_list.append(
+                (
+                    CompoundDataset(train_entries),
+                    CompoundDataset(test_entries),
+                )
+            )
+
+        return split_list
     def to_dict(self):
     #NOTE: should be expanded with relevant slop for tables.
         return[{
