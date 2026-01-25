@@ -1,5 +1,10 @@
 # general setup for full pipeline:
-data_source : "..."
-representation_types : [ecfp4]
+data_islocal : True
+data_source : "data/cpd_data_soil_all_data.tsv" #relative path from main.
+input_col : "SMILES"
+target_col : "DT50_log_gmean"
+input_format : "smiles"
+encoding_types : [ecfp4]
 bit_lengths : [1024]
 models : [rf] #maybe good to keep this hardcoded in module level -> point to models.
+runs: 10 # folds or resamplings
