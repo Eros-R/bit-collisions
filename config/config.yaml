@@ -4,7 +4,10 @@ data_source : "data/cpd_data_soil_all_data.tsv" #relative path from main.
 input_col : "SMILES"
 target_col : "DT50_log_gmean"
 input_format : "smiles"
-encoding_types : [ecfp4]
-bit_lengths : [1024]
-models : [rf] #maybe good to keep this hardcoded in module level -> point to models.
+encoding_types : ["rdkit","ecfp4","map4","secfp6"]
+bit_lengths : [128,1024,2048,4096]
+models : ["randomforest", "xgb","nn"] #maybe good to keep this hardcoded in module level -> point to models.
 runs: 10 # folds or resamplings
+test_fraction: 0.2
+map4_unfolded_path : "map4_unfolded.json"
+secfp6_unfolded_path : "secfp6_unfolded.json"
