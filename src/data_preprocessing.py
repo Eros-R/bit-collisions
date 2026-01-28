@@ -340,50 +340,50 @@ class CompoundDataset:
         }
         for entry in self._entries
     ]
-    # WARNING: DS LEVEL TARGET SETTING UNIMPLEMENTED
     def set_targets(self,target_values):
         assert len(self) == len(target_values), "Unequal number of target values and compounds"
-
-    def get_dataset_collisions(self, representation, bits):
-        key = representation,bits
-        # if it is already there return.
-        if key in self._dataset_collisions:
-            return self._dataset_collisions[key]
-        collisions = defaultdict(set)
-        for entry in self._entries:
-            rep = entry._representation
-            if rep._unfolded is None:
-                rep.set_representation(representation) #here radius is hardcoded,
-            unfolded = rep.get_unfolded()
-            for hash in unfolded.GetNonzeroElements():
-                collisions[hash % bits].add(hash)
-        collisions = {k:v for k,v in collisions.items() if len(v) > 1}
-        self._dataset_collisions[key] = collisions
-        return collisions
-    # might break with others?
     def get_dataset_self_collisions(self, representation, bits):
         key = (representation, bits)
-        if not hasattr(self, "_dataset_collisions"):
-            self._dataset_collisions = {}
-
-        if key in self._dataset_collisions:
-            return self._dataset_collisions[key]
+        if not hasattr(self, "_dataset_self_collisions"):
+            self._dataset_self_collisions = {}
+        if key in self._dataset_self_collisions:
+            return self._dataset_self_collisions[key]
 
         collisions = {}
         for entry in self._entries:
             rep = entry._representation
             if rep._unfolded is None:
                 rep.set_representation(representation)
-            # compute collisions per entry if not already done
-            if bits not in rep._self_collisions:
-                rep.get_compound_collisions(bits)
-            collisions[entry.id] = rep._self_collisions[bits]
+            folded_counts = rep.get_folded_counts(bits)
+            collisions_per_compound = defaultdict(set)
+            for idx, count in enumerate(folded_counts):
+                if count > 1:
+                    collisions_per_compound[idx].add(idx)
+            collisions[entry.id] = {k: v for k, v in collisions_per_compound.items() if len(v) > 0}
 
         self._dataset_self_collisions[key] = collisions
         return collisions
-    def print_scaffoldstats(self):
-        scaffolds = [x._scaffold for x in self._entries]
-        print(Counter(scaffolds))
+    def get_dataset_collisions(self, representation, bits):
+        key = (representation, bits)
+        if not hasattr(self, "_dataset_collisions"):
+            self._dataset_collisions = {}
+        if key in self._dataset_collisions:
+            return self._dataset_collisions[key]
+
+        collisions = defaultdict(set)
+        for entry in self._entries:
+            rep = entry._representation
+            if rep._unfolded is None:
+                rep.set_representation(representation)
+            folded_counts = rep.get_folded_counts(bits)
+            for idx, count in enumerate(folded_counts):
+                if count > 0:
+                    collisions[idx].add(entry.id)
+
+        collisions = {k: v for k, v in collisions.items() if len(v) > 1}
+        self._dataset_collisions[key] = collisions
+        return collisions
+
     def set_representations(self, representation):
         if not isinstance(representation, RepresentationType):
             raise TypeError(f"unrecognized representation type provided: {representation}")
@@ -394,7 +394,13 @@ class CompoundDataset:
                 entry._representation._unfolded = self._precomputed.get(entry.id, None)
             else:
                 entry._representation.set_representation(representation)
-
+        # flush cached collision dicts to avoid cross-contamination
+        self._dataset_collisions = {}
+        self._dataset_self_collisions = {}
+        self._folded_dataset = {}
+    def print_scaffoldstats(self):
+        scaffolds = [x._scaffold for x in self._entries]
+        print(Counter(scaffolds))
     def get_folded_dataset(self, representation, bits):
         # ensure top-level dict exists (already set in __init__)
         if representation not in self._folded_dataset:
