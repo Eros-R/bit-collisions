@@ -5,7 +5,7 @@ input_col : "SMILES"
 target_col : "DT50_log_gmean"
 input_format : "smiles"
 encoding_types : ["rdkit","ecfp4","map4","secfp6"]
-bit_lengths : [128,1024,2048,4096]
+bit_lengths : [128, 256,1024,2048,4096]
 models : ["randomforest", "xgb","nn"] #maybe good to keep this hardcoded in module level -> point to models.
 runs: 10 # folds or resamplings
 test_fraction: 0.2
