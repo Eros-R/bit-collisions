@@ -1,11 +1,14 @@
 # Dataset & Entry classes for downstream ML tasks
 
 from enum import Enum
+from typing import Any
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 from collections import defaultdict
 import random
 import re
+from rdkit.Chem import rdFingerprintGenerator
+import json
 
 from collections import Counter
 from rdkit import RDLogger
@@ -15,11 +18,22 @@ class IdentifierType(Enum):
     smiles = "smiles"
     inchi = "inchi"
 
+
+_DEFAULTS_MAP = {
+    "ecfp4": {"radius": 2},
+    "rdkit": {"minPath":1, "maxPath":7},
+    "map4" : None,
+    "secfp6" : None,
+}
+# even with decorator feels a bit wonky..
 class RepresentationType(Enum):
     ecfp4 = "ecfp4"
+    rdkit = "rdkit"
     map4 = "map4"
-    ... #?
-
+    secfp6 = "secfp6"
+    @property
+    def defaults(self):
+        return _DEFAULTS_MAP[self.value]
 class CompoundEntry:
     # init w/ one "type"
     def __init__(self, id, id_type, target = None):
@@ -49,6 +63,7 @@ class CompoundEntry:
         if len(scaffold_smiles) == 0: # decompose returns ring systems. so no cyclic = NONE. need to tag.
             scaffold_smiles = "acyclic"
         self._scaffold = scaffold_smiles
+        return self._scaffold
     def set_target(self, target_value):
         self._target = target_value
     # need params to be equal? or just take expand and pray?
@@ -62,51 +77,87 @@ class CompoundRepresentation:
         self._unfolded = None
         self._folded_counts = {}
         self._folded = {} # can dump multiple "folds" to single dict
-        self._self_collisions = None
-        self._bifinfo = None
+        self._self_collisions = {}
+        self._bitfinfo = None
+        self._precomputed = None
+    # perhaps magic default for radius? IDK if all use radii
     def set_representation(self, representation):
+        if self._entry._mol is None:
+            raise RuntimeError("Mol must be set before constructing representation")
         if not isinstance(representation, RepresentationType):
             raise TypeError("Unrecognized representation type")
         # kill set rep.
         self._unfolded = None
-        self._folded = None
-        self._folded_counts = None
-        self._self_collisions = None
-        self._bifinfo = None
-
+        self._folded = {} 
+        self._folded_counts = {}
+        self._self_collisions = {}
+        self._bitfinfo = None
+        # fuuhhh
+        params = representation.defaults
         if representation is RepresentationType.ecfp4:
-            bitinfo = {} # radius is hard to acces!
-            self._unfolded = rdMolDescriptors.GetMorganFingerprint(self._entry._mol, radius = 2, bitInfo=bitinfo)
-            self._bifinfo = bitinfo
-    def get_folded(self,bits = 1024):
+            bitinfo = rdFingerprintGenerator.AdditionalOutput()
+            bitinfo.AllocateBitInfoMap()
+            gen = rdFingerprintGenerator.GetMorganGenerator(radius = params.get("radius",2))
+            self._unfolded = gen.GetSparseCountFingerprint(self._entry._mol, additionalOutput = bitinfo)
+            self._bitinfo = bitinfo.GetBitInfoMap()
+        if representation is RepresentationType.rdkit:
+            bitinfo = rdFingerprintGenerator.AdditionalOutput()
+            bitinfo.AllocateBitInfoMap()
+            # Using defaults here?
+            gen = rdFingerprintGenerator.GetRDKitFPGenerator(minPath = params.get("minPath",1), maxPath = params.get("maxPath", 7))
+            self._unfolded = gen.GetSparseCountFingerprint(self._entry._mol, additionalOutput=bitinfo)
+            self._bitinfo = bitinfo.GetBitInfoMap()
+        # nx opening the file is stupid af.
+        if representation is RepresentationType.map4:
+            if self._precomputed is None:
+                raise RuntimeError("no precomputed map4 representation provided")
+            self._unfolded = self._precomputed[self._entry.id] 
+
+        if representation is RepresentationType.secfp6:
+            if self._precomputed is None:
+                raise RuntimeError("no precomputed secfp6 representation provided")
+            self._unfolded = self._precomputed[self._entry.id] 
+
+
+    def _get_nonzero_elements(self):
+        if hasattr(self._unfolded, "GetNonzeroElements"):
+            return self._unfolded.GetNonzeroElements()
+        elif isinstance(self._unfolded, list):
+            return {i: 1 for i in self._unfolded}
+        elif isinstance(self._unfolded, dict):
+            return self._unfolded
+        else:
+            raise TypeError("Unknown unfolded type")
+
+    def get_folded(self, bits=1024):
         if self._unfolded is None:
             raise RuntimeError("representation not set")
         if bits not in self._folded:
             folded = [0] * bits
-            for hash in self._unfolded.GetNonzeroElements():
-                folded[hash % bits] = 1
+            for hash_idx in self._get_nonzero_elements():
+                folded[hash_idx % bits] = 1
             self._folded[bits] = folded
-        # oop, still return the folded vec dict?\
-    #NOTE: maybe duplication > check every it?
-    def get_folded_counts(self,bits = 1024):
+        return self._folded[bits]
+
+    def get_folded_counts(self, bits=1024):
         if self._unfolded is None:
             raise RuntimeError("representation not set")
         if bits not in self._folded_counts:
             folded = [0] * bits
-            for hash in self._unfolded.GetNonzeroElements():
-                folded[hash % bits] += 1
+            for hash_idx, count in self._get_nonzero_elements().items():
+                folded[hash_idx % bits] += count
             self._folded_counts[bits] = folded
-    def get_compount_collisions(self, bits):
+        return self._folded_counts[bits]
+
+    def get_compound_collisions(self, bits):
         if self._unfolded is None:
             raise RuntimeError("representation not set")
         if bits not in self._self_collisions:
             collisions = defaultdict(set)
-            for hash in self._unfolded.GetNonzeroElements():
-                collisions[hash % bits].add(hash)
-            self._self_collisions[bits] = {
-                k:v for k,v in collisions.items() if len(v) > 1
-            }
-    # should make getters return
+            for hash_val in self._get_nonzero_elements().keys():
+                collisions[hash_val % bits].add(hash_val)
+            self._self_collisions[bits] = {k: v for k, v in collisions.items() if len(v) > 1}
+        return self._self_collisions[bits]
     def get_unfolded(self):
         if self._unfolded is None:
             raise RuntimeError("representation not set")
@@ -126,12 +177,15 @@ def n_atoms_from_smiles(smiles:str):
 
 # Might give some issues if ds is REALLY huge, but doubt it.
 class CompoundDataset:
-    def __init__(self,entries=None):
+    def __init__(self,entries=None, precomputed = None):
         self._entries = []
         if entries is not None:
             for entry in entries:
                 self.add(entry)
         self._dataset_collisions = {}
+        self._dataset_self_collisions = {}
+        self._folded_dataset = {}
+        self._precomputed= precomputed
     def add(self,entry):
         if not isinstance(entry, CompoundEntry):
             raise TypeError("Dataset should consist of CompoundEntry objects")
@@ -222,7 +276,7 @@ class CompoundDataset:
     def scaffold_exclusive_sampling(
         self,
         test_fraction: float = 0.2,
-        n_samples: int = 10, #
+        n_samples: int = 10,
         seed: int = 1508
     ):
         groups = defaultdict(list)
@@ -236,33 +290,36 @@ class CompoundDataset:
             else:
                 groups[scaffold].append(entry)
 
-        scaffold_items = list(groups.values())
+        scaffold_items_master = list(groups.values())
+        total_scaffold_size = sum(len(g) for g in scaffold_items_master)
+        target_test_size = int(test_fraction * total_scaffold_size)
+
         split_list = []
 
         for i in range(n_samples):
-            rng = random.Random(seed + i) # note the seed +1 if wanted to reprod. later.
+            rng = random.Random(seed + i)
+
+            scaffold_items = scaffold_items_master.copy()
             rng.shuffle(scaffold_items)
 
             test_entries = []
             train_entries = []
 
-            target_test_size = int(test_fraction * sum(len(g) for g in scaffold_items))
-            current_size = 0
+            current_test_size = 0
 
             for group in scaffold_items:
-                if current_size < target_test_size:
+                if current_test_size < target_test_size:
                     test_entries.extend(group)
-                    current_size += len(group)
+                    current_test_size += len(group)
                 else:
                     train_entries.extend(group)
 
             rng.shuffle(acyclic_entries)
             acyclic_test_size = int(test_fraction * len(acyclic_entries))
-            acyclic_test = acyclic_entries[:acyclic_test_size]
-            acyclic_train = acyclic_entries[acyclic_test_size:]
+            test_entries.extend(acyclic_entries[:acyclic_test_size])
+            train_entries.extend(acyclic_entries[acyclic_test_size:])
 
-            test_entries.extend(acyclic_test)
-            train_entries.extend(acyclic_train)
+            print(i, len(test_entries), len(train_entries))
 
             split_list.append(
                 (
@@ -283,6 +340,7 @@ class CompoundDataset:
         }
         for entry in self._entries
     ]
+    # WARNING: DS LEVEL TARGET SETTING UNIMPLEMENTED
     def set_targets(self,target_values):
         assert len(self) == len(target_values), "Unequal number of target values and compounds"
 
@@ -302,11 +360,78 @@ class CompoundDataset:
         collisions = {k:v for k,v in collisions.items() if len(v) > 1}
         self._dataset_collisions[key] = collisions
         return collisions
+    # might break with others?
+    def get_dataset_self_collisions(self, representation, bits):
+        key = (representation, bits)
+        if not hasattr(self, "_dataset_collisions"):
+            self._dataset_collisions = {}
 
+        if key in self._dataset_collisions:
+            return self._dataset_collisions[key]
+
+        collisions = {}
+        for entry in self._entries:
+            rep = entry._representation
+            if rep._unfolded is None:
+                rep.set_representation(representation)
+            # compute collisions per entry if not already done
+            if bits not in rep._self_collisions:
+                rep.get_compound_collisions(bits)
+            collisions[entry.id] = rep._self_collisions[bits]
+
+        self._dataset_self_collisions[key] = collisions
+        return collisions
     def print_scaffoldstats(self):
         scaffolds = [x._scaffold for x in self._entries]
         print(Counter(scaffolds))
-    
+    def set_representations(self, representation):
+        if not isinstance(representation, RepresentationType):
+            raise TypeError(f"unrecognized representation type provided: {representation}")
+        for entry in self._entries:
+            if entry._mol is None:
+                entry.get_mol()
+            if self._precomputed is not None:
+                entry._representation._unfolded = self._precomputed.get(entry.id, None)
+            else:
+                entry._representation.set_representation(representation)
+
+    def get_folded_dataset(self, representation, bits):
+        # ensure top-level dict exists (already set in __init__)
+        if representation not in self._folded_dataset:
+            self._folded_dataset[representation] = {}
+
+        # nested dict for bit length
+        if bits not in self._folded_dataset[representation]:
+            self._folded_dataset[representation][bits] = {}
+
+            for entry in self._entries:
+                rep = entry._representation
+                if rep._unfolded is None:
+                    rep.set_representation(representation)
+                self._folded_dataset[representation][bits][entry.id] = rep.get_folded(bits)
+
+        return self._folded_dataset[representation][bits]
+    # helpers since the "keys" are tuples of type/bits
+    def get_collisions_for(self, representation, bits):
+        key = (representation, bits)
+        if not hasattr(self, "_dataset_self_collisions"):
+            self._dataset_self_collisions = {}
+        if key not in self._dataset_self_collisions:
+            self.get_dataset_self_collisions(representation, bits)
+        return self._dataset_self_collisions.get(key, {})
+
+    def get_folded_for(self, representation, bits):
+        if not hasattr(self, "_folded_dataset"):
+            self._folded_dataset = {}
+        if representation not in self._folded_dataset:
+            self._folded_dataset[representation] = {}
+        if bits not in self._folded_dataset[representation]:
+            self.get_folded_dataset(representation, bits)
+        return self._folded_dataset[representation].get(bits, {})
+    def get_targets_dict(self):
+        if any(entry._target is None for entry in self._entries):
+            raise RuntimeError("Some entries have no target set")
+        return {entry.id: entry._target for entry in self._entries}
 
 
 def sybau_rdkit():
