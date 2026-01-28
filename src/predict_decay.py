@@ -5,7 +5,7 @@ from data_preprocessing import *
 from models import *
 import json
 import copy
-
+import numpy as np
 # could be moved to data part.
 def parse_identifiertype(idtype:str) -> IdentifierType | None:
     try:
@@ -109,6 +109,16 @@ def main():
                 for i, data_split in enumerate(split_list):
                     train_ds, test_ds = data_split[1], data_split[0]
                     results = mtype.loader(train=train_ds, test=test_ds, representation=reptype, bits=bit_len)
+                    if "model" in results:
+                        results["model"] = model_type  # swap to json savable string instead of model
+                    # type casting for JSON
+                    for k, v in results.items():
+                        if isinstance(v, np.ndarray):
+                            results[k] = v.tolist()
+                        elif isinstance(v, (np.float32, np.float64)):
+                            results[k] = float(v)
+                        elif isinstance(v, (np.int32, np.int64)):
+                            results[k] = int(v)
                     splitstack[i] = results
                 reskey = f"{model_type}_{encoding_type}_{bit_len}"
                 resdic[reskey] = splitstack
@@ -150,8 +160,9 @@ def main():
         .rename(columns={False: "no_collision", True: "with_collision"})
         .sort_index()
     )
+
     with open("model_results.json", "w") as f:
-        json.dump(resdic, f, indent=2)
+        json.dump(dict(resdic), f, indent=2)
 
     with open("self_collisions.json", "w") as f:
         json.dump(all_self_collisions, f, indent=2)
