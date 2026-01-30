@@ -6,7 +6,6 @@ import pandas as pd
 from rdkit import Chem
 import numpy as np
 import json
-
 # spome duplication to avoid circular.
 def parse_identifiertype(idtype:str):
     try:
@@ -50,17 +49,17 @@ def main():
     print(config)
     dataset = load_dataset(config)
     # simple, we create a injectable JSON dict of the unfolded hashes:
-    print("Generating Map4 unfolded fingerprints")
-    results = {}
     #since we only get shingles we do not need to set vars.
     MAP4_folded = MAP4Calculator()
-    dim_data = {"folded": {}, "collisions": {}}
-    dataset_counter = Counter()
     Encoder = MHFPEncoder()
     # touching the encoder class. we can enforce larger ints to not overflow...
     Encoder.permutations_a = Encoder.permutations_a.astype(np.uint64)
     Encoder.permutations_b = Encoder.permutations_b.astype(np.uint64)
     Encoder.max_hash = np.uint64(Encoder.max_hash)
+    # roundabout way but fast to modify.
+    
+    print("Generating Map4 unfolded - Minhashed fingerprints")
+    results = {}
     for entry in dataset:
         mol = Chem.MolFromSmiles(entry.id)
         envs = MAP4_folded._get_atom_envs(mol)
@@ -70,15 +69,17 @@ def main():
         results[entry.id] = hashies.tolist()
     with open("map4_unfolded.json", 'w') as file:
         json.dump(results, file)
-    # Might as well do SECFP6 from here as well, nah?
-    print("Generating SECFP6 unfolded fingerprints")
+
+    print("Generating SECFP6 unfolded - Minhashed fingerprints")
     results = {}
     # recreate secfp from mol but unfolded
     for entry in dataset:
         mol = Chem.MolFromSmiles(entry.id)
         shinglings = Encoder.shingling_from_mol(mol)
-        hashies = Encoder.hash(shinglings)
+        hashies = Encoder.from_molecular_shingling(shinglings)
         results[entry.id] = hashies.tolist()
+    for k,v in results.items():
+        print(k, v)
     with open("secfp6_unfolded.json", 'w') as file:
         json.dump(results,file)
 
