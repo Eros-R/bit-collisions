@@ -53,11 +53,17 @@ def main():
     split_list = dataset.scaffold_exclusive_sampling(test_fraction=test_fraction, n_samples=n_samples, seed=1508)
     encoding_types = config.get("encoding_types", ["ecfp"])
     bit_lengths = config.get("bit_lengths", [1024])
-
+    # save split identities to dict:
+    split_identities = {}
+    for i, split in enumerate(split_list):
+        i += 1
+        train, test =  split #holy fuck why did I invert this?
+        test_ids = [entry.id for entry in test._entries]
+        train_ids = [entry.id for entry in train._entries]
+        split_identities[f"split_{i}"] = {"test":test_ids,"train":train_ids}
     resdic = defaultdict(dict)
     all_self_collisions = defaultdict(dict)
     all_dataset_collisions = defaultdict(dict)
-
     for encoding_type in encoding_types:
         try:
             reptype = RepresentationType(encoding_type)
@@ -107,7 +113,7 @@ def main():
                     continue
                 splitstack = {}
                 for i, data_split in enumerate(split_list):
-                    train_ds, test_ds = data_split[1], data_split[0]
+                    train_ds, test_ds = data_split[0], data_split[1]
                     results = mtype.loader(train=train_ds, test=test_ds, representation=reptype, bits=bit_len)
                     if "model" in results:
                         results["model"] = model_type  # swap to json savable string instead of model
@@ -152,7 +158,7 @@ def main():
     ]
 
     df = pd.DataFrame(rows)
-
+    
     print(
         df.groupby(["representation", "bits", "has_self_collision"])
         .size()
@@ -160,6 +166,9 @@ def main():
         .rename(columns={False: "no_collision", True: "with_collision"})
         .sort_index()
     )
+    # warp dict for lazinesss.
+    with open("split_identities.json", "w") as f:
+        json.dump(dict(split_identities), f)
 
     with open("model_results.json", "w") as f:
         json.dump(dict(resdic), f, indent=2)
