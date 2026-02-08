@@ -11,3 +11,5 @@ runs: 10 # folds or resamplings
 test_fraction: 0.2
 map4_unfolded_path : "map4_unfolded.json"
 secfp6_unfolded_path : "secfp6_unfolded.json"
+map4_folded_path : "map4_folded.json"
+secfp_folded_path : "secfp6_folded.json"
