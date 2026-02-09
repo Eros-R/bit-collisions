@@ -24,12 +24,18 @@ def extract_features_targets(dataset, representation, bits):
     return X, y
 
 # Close to default RF
-def run_rf_model(train, test, representation, bits, n_estimators=100, max_depth=None):
-    try:
-        X_train, y_train = extract_features_targets(train, representation, bits)
-        X_test, y_test = extract_features_targets(test, representation, bits)
-    except RuntimeError as e:
-        raise RuntimeError(f"Failed to extract features/targets: {e}")
+def run_rf_model(representation, bits, n_estimators=100, max_depth=None, extract = True, x_train=None, y_train = None, x_test = None, y_test = None, train = None, test = None):
+    if extract:
+        try:
+            X_train, y_train = extract_features_targets(train, representation, bits)
+            X_test, y_test = extract_features_targets(test, representation, bits)
+        except RuntimeError as e:
+            raise RuntimeError(f"Failed to extract features/targets: {e}")
+    else:
+        X_train = x_train
+        y_train = y_train
+        X_test = x_test
+        y_test = y_test
     print(f"running model: random forest {representation} {bits}")
     model = RandomForestRegressor(
         n_estimators=n_estimators,
@@ -50,15 +56,20 @@ def run_rf_model(train, test, representation, bits, n_estimators=100, max_depth=
     }
     return results
 # Sameish to RF
-def run_xgb_model(train, test, representation, bits, n_estimators=100, max_depth=6, learning_rate=0.1):
-    try:
-        X_train, y_train = extract_features_targets(train, representation, bits)
-        X_test, y_test = extract_features_targets(test, representation, bits)
-    except RuntimeError as e:
-        raise RuntimeError(f"Failed to extract features/targets: {e}")
+def run_xgb_model(representation, bits, n_estimators=100, max_depth=6, learning_rate=0.1, extract = True, x_train=None, y_train = None, x_test = None, y_test = None, train = None, test = None):
+    if extract:
+        try:
+            X_train, y_train = extract_features_targets(train, representation, bits)
+            X_test, y_test = extract_features_targets(test, representation, bits)
+        except RuntimeError as e:
+            raise RuntimeError(f"Failed to extract features/targets: {e}")
+    else:
+        X_train = x_train
+        y_train = y_train
+        X_test = x_test
+        y_test = y_test
 
     print(f"running model: XGBoost {representation} {bits}")
-
     model = xgb.XGBRegressor(
         n_estimators=n_estimators,
         max_depth=max_depth,
@@ -82,12 +93,18 @@ def run_xgb_model(train, test, representation, bits, n_estimators=100, max_depth
     return results
 
 # Three-layer fully connected feedforward network with ReLU activations
-def run_nn_model(train, test, representation, bits, hidden_dims=[128, 64], epochs=100, batch_size=32, lr=1e-3):
-    try:
-        X_train, y_train = extract_features_targets(train, representation, bits)
-        X_test, y_test = extract_features_targets(test, representation, bits)
-    except RuntimeError as e:
-        raise RuntimeError(f"Failed to extract features/targets: {e}")
+def run_nn_model(representation, bits, hidden_dims=[128, 64], epochs=100, batch_size=32, lr=1e-3, extract = True, x_train=None, y_train = None, x_test = None, y_test = None, train = None, test = None):
+    if extract:
+        try:
+            X_train, y_train = extract_features_targets(train, representation, bits)
+            X_test, y_test = extract_features_targets(test, representation, bits)
+        except RuntimeError as e:
+            raise RuntimeError(f"Failed to extract features/targets: {e}")
+    else:
+        X_train = x_train
+        y_train = y_train
+        X_test = x_test
+        y_test = y_test
 
     print(f"running model: Neural Network {representation} {bits}")
 
