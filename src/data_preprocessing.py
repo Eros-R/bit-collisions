@@ -1,7 +1,9 @@
 # Dataset & Entry classes for downstream ML tasks
+USE_SCIKITFP = True
 
 from enum import Enum
-from typing import Any
+from typing import Any, Awaitable, List
+from numpy import isin
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 from collections import defaultdict
@@ -79,7 +81,7 @@ class CompoundRepresentation:
         self._folded = {} # can dump multiple "folds" to single dict
         self._self_collisions = {}
         self._bitfinfo = None
-        self._precomputed = None
+        self._precomputed_unfolded = None
     # perhaps magic default for radius? IDK if all use radii
     def set_representation(self, representation):
         if self._entry._mol is None:
@@ -109,14 +111,14 @@ class CompoundRepresentation:
             self._bitinfo = bitinfo.GetBitInfoMap()
         # nx opening the file is stupid af.
         if representation is RepresentationType.map4:
-            if self._precomputed is None:
+            if self._precomputed_unfolded is None:
                 raise RuntimeError("no precomputed map4 representation provided")
-            self._unfolded = self._precomputed[self._entry.id] 
+            self._unfolded = self._precomputed_unfolded[self._entry.id] 
 
         if representation is RepresentationType.secfp6:
-            if self._precomputed is None:
+            if self._precomputed_unfolded is None:
                 raise RuntimeError("no precomputed secfp6 representation provided")
-            self._unfolded = self._precomputed[self._entry.id] 
+            self._unfolded = self._precomputed_unfolded[self._entry.id] 
 
 
     def _get_nonzero_elements(self):
@@ -130,6 +132,9 @@ class CompoundRepresentation:
             raise TypeError("Unknown unfolded type")
 
     def get_folded(self, bits=1024):
+        folded = self._folded.get(bits, None)
+        if folded:
+            return self._folded[bits]
         if self._unfolded is None:
             raise RuntimeError("representation not set")
         if bits not in self._folded:
@@ -177,7 +182,7 @@ def n_atoms_from_smiles(smiles:str):
 
 # Might give some issues if ds is REALLY huge, but doubt it.
 class CompoundDataset:
-    def __init__(self,entries=None, precomputed = None):
+    def __init__(self,entries=None, precomputed_unfolded = None, precomputed_folded = None):
         self._entries = []
         if entries is not None:
             for entry in entries:
@@ -185,7 +190,8 @@ class CompoundDataset:
         self._dataset_collisions = {}
         self._dataset_self_collisions = {}
         self._folded_dataset = {}
-        self._precomputed= precomputed
+        self._precomputed_unfolded = precomputed_unfolded
+        self._precomputed_folded = precomputed_folded
     def add(self,entry):
         if not isinstance(entry, CompoundEntry):
             raise TypeError("Dataset should consist of CompoundEntry objects")
@@ -390,33 +396,41 @@ class CompoundDataset:
         for entry in self._entries:
             if entry._mol is None:
                 entry.get_mol()
-            if self._precomputed is not None:
-                entry._representation._unfolded = self._precomputed.get(entry.id, None)
+            if self._precomputed_unfolded is not None:
+                entry._representation._unfolded = self._precomputed_unfolded.get(entry.id, None)
             else:
                 entry._representation.set_representation(representation)
         # flush cached collision dicts to avoid cross-contamination
         self._dataset_collisions = {}
         self._dataset_self_collisions = {}
-        self._folded_dataset = {}
+    # we actually do not need? to set the individual entries as all are aggregated
+    def add_folded_representation(self, representation, folded_representation):
+        if not isinstance(representation, RepresentationType):
+            raise TypeError(f"unrecognized representation type provided: {representation}")
+        # note that this does not care what goes in...
+        self._folded_dataset[representation] = folded_representation
+        
     def print_scaffoldstats(self):
         scaffolds = [x._scaffold for x in self._entries]
         print(Counter(scaffolds))
+    # needed to wrap some fringe cases
     def get_folded_dataset(self, representation, bits):
+        bits = int(bits)
+        bitstr = bits
+        if isinstance(bitstr, int):
+            bitstr = str(bits)
         # ensure top-level dict exists (already set in __init__)
         if representation not in self._folded_dataset:
             self._folded_dataset[representation] = {}
-
-        # nested dict for bit length
-        if bits not in self._folded_dataset[representation]:
-            self._folded_dataset[representation][bits] = {}
-
+        if bitstr not in self._folded_dataset[representation]:
+            self._folded_dataset[representation][bitstr] = {}
             for entry in self._entries:
                 rep = entry._representation
-                if rep._unfolded is None:
+                if rep._folded is None:
                     rep.set_representation(representation)
-                self._folded_dataset[representation][bits][entry.id] = rep.get_folded(bits)
+                self._folded_dataset[representation][bitstr][entry.id] = rep.get_folded(bits)
+        return self._folded_dataset[representation][bitstr]
 
-        return self._folded_dataset[representation][bits]
     # helpers since the "keys" are tuples of type/bits
     def get_collisions_for(self, representation, bits):
         key = (representation, bits)
@@ -425,7 +439,6 @@ class CompoundDataset:
         if key not in self._dataset_self_collisions:
             self.get_dataset_self_collisions(representation, bits)
         return self._dataset_self_collisions.get(key, {})
-
     def get_folded_for(self, representation, bits):
         if not hasattr(self, "_folded_dataset"):
             self._folded_dataset = {}
