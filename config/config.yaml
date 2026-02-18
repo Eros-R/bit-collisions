@@ -7,9 +7,9 @@ input_format : "smiles"
 encoding_types : ["rdkit","ecfp4","map4","secfp6"]
 bit_lengths : [128, 256,1024,2048,4096]
 models : ["randomforest", "xgb","nn"] #maybe good to keep this hardcoded in module level -> point to models.
-runs: 10 # folds or resamplings
-test_fraction: 0.2
+runs: 20 # folds or resamplings
+test_fraction: 0.1
 map4_unfolded_path : "map4_unfolded.json"
 secfp6_unfolded_path : "secfp6_unfolded.json"
-map4_folded_path : "map4_folded.json"
-secfp_folded_path : "secfp6_folded.json"
+map4_folded_path : "map4_folded_native.json"
+secfp6_folded_path : "secfp6_folded.json"
