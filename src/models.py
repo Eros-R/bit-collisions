@@ -7,11 +7,10 @@ import xgboost as xgb
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
+from sklearn.preprocessing import StandardScaler
 # tried different from the DEFAULT call in dataset preproc. cast from from_string w/decorator
 # w/e its fking python...
 
-def load_rf_model(n_estimators = 100, max_depth = None, criterion = "absolute_error", random_state = 1508):
-    return RandomForestRegressor(n_estimators= n_estimators, max_depth = max_depth, criterion=criterion,random_state=random_state)
 # maybe this in processibng?
 def extract_features_targets(dataset, representation, bits):
     X_dict = dataset.get_folded_dataset(representation, bits)
@@ -22,9 +21,15 @@ def extract_features_targets(dataset, representation, bits):
     y = [y_dict[i] for i in ids]
 
     return X, y
-
+def scale_features(X_train, X_test):
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    return X_train_scaled, X_test_scaled
 # Close to default RF
-def run_rf_model(representation, bits, n_estimators=100, max_depth=None, extract = True, x_train=None, y_train = None, x_test = None, y_test = None, train = None, test = None):
+def run_rf_model(representation, bits, n_estimators=200, max_depth=12, min_samples_split=2,
+                 min_samples_leaf=1, max_features='sqrt', extract=True,
+                 x_train=None, y_train=None, x_test=None, y_test=None, train=None, test=None):
     if extract:
         try:
             X_train, y_train = extract_features_targets(train, representation, bits)
@@ -36,17 +41,23 @@ def run_rf_model(representation, bits, n_estimators=100, max_depth=None, extract
         y_train = y_train
         X_test = x_test
         y_test = y_test
-    print(f"running model: random forest {representation} {bits}")
+
+    print(f"running model: Random Forest {representation} {bits}")
     model = RandomForestRegressor(
         n_estimators=n_estimators,
         max_depth=max_depth,
+        min_samples_split=min_samples_split,
+        min_samples_leaf=min_samples_leaf,
+        max_features=max_features,
         criterion="absolute_error",
-        random_state=1508
+        random_state=1508,
+        n_jobs=-1
     )
+
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 
-    results = {
+    return {
         "model": model,
         "y_test": y_test,
         "y_pred": y_pred,
@@ -54,9 +65,10 @@ def run_rf_model(representation, bits, n_estimators=100, max_depth=None, extract
         "mse": mean_squared_error(y_test, y_pred),
         "r2": r2_score(y_test, y_pred)
     }
-    return results
-# Sameish to RF
-def run_xgb_model(representation, bits, n_estimators=100, max_depth=6, learning_rate=0.1, extract = True, x_train=None, y_train = None, x_test = None, y_test = None, train = None, test = None):
+#juiced
+def run_xgb_model(representation, bits, n_estimators=500, max_depth=8, learning_rate=0.05, subsample=0.8,
+                  colsample_bytree=0.8, gamma=1.0, min_child_weight=1, extract=True,
+                  x_train=None, y_train=None, x_test=None, y_test=None, train=None, test=None):
     if extract:
         try:
             X_train, y_train = extract_features_targets(train, representation, bits)
@@ -74,14 +86,19 @@ def run_xgb_model(representation, bits, n_estimators=100, max_depth=6, learning_
         n_estimators=n_estimators,
         max_depth=max_depth,
         learning_rate=learning_rate,
-        objective="reg:absoluteerror", #abs error should be opt target.
-        random_state=1508
+        subsample=subsample,
+        colsample_bytree=colsample_bytree,
+        gamma=gamma,
+        min_child_weight=min_child_weight,
+        objective="reg:absoluteerror",
+        random_state=1508,
+        n_jobs=-1
     )
 
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 
-    results = {
+    return {
         "model": model,
         "y_test": y_test,
         "y_pred": y_pred,
@@ -90,10 +107,10 @@ def run_xgb_model(representation, bits, n_estimators=100, max_depth=6, learning_
         "r2": r2_score(y_test, y_pred)
     }
 
-    return results
-
 # Three-layer fully connected feedforward network with ReLU activations
-def run_nn_model(representation, bits, hidden_dims=[128, 64], epochs=100, batch_size=32, lr=1e-3, extract = True, x_train=None, y_train = None, x_test = None, y_test = None, train = None, test = None):
+def run_nn_model(representation, bits, hidden_dims=[256,128,64], epochs=200, batch_size=32, lr=1e-3,
+                 extract=True, x_train=None, y_train=None, x_test=None, y_test=None, train=None, test=None):
+
     if extract:
         try:
             X_train, y_train = extract_features_targets(train, representation, bits)
@@ -108,10 +125,10 @@ def run_nn_model(representation, bits, hidden_dims=[128, 64], epochs=100, batch_
 
     print(f"running model: Neural Network {representation} {bits}")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32, device=device)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32, device=device).view(-1, 1)
+    y_train_tensor = torch.tensor(y_train, dtype=torch.float32, device=device).view(-1,1)
     X_test_tensor = torch.tensor(X_test, dtype=torch.float32, device=device)
 
     train_ds = TensorDataset(X_train_tensor, y_train_tensor)
@@ -140,10 +157,9 @@ def run_nn_model(representation, bits, hidden_dims=[128, 64], epochs=100, batch_
 
     model.eval()
     with torch.no_grad():
-        y_pred_tensor = model(X_test_tensor)
-        y_pred = y_pred_tensor.cpu().numpy().flatten()
+        y_pred = model(X_test_tensor).cpu().numpy().flatten()
 
-    results = {
+    return {
         "model": model,
         "y_test": y_test,
         "y_pred": y_pred,
@@ -151,8 +167,6 @@ def run_nn_model(representation, bits, hidden_dims=[128, 64], epochs=100, batch_
         "mse": mean_squared_error(y_test, y_pred),
         "r2": r2_score(y_test, y_pred)
     }
-
-    return results
 class ModelType(Enum):
     randomforest = ("randomforest", run_rf_model)
     xgb = ("xgb", run_xgb_model)

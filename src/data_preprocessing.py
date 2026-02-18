@@ -1,5 +1,4 @@
 # Dataset & Entry classes for downstream ML tasks
-USE_SCIKITFP = True
 
 from enum import Enum
 from typing import Any, Awaitable, List
