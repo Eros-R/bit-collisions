@@ -129,6 +129,7 @@ def draw_collision_molecules(collision_entries, file_name):
         )
         drawer.FinishDrawing()
         file_name = f"{base_name}_{i}.png"
+        # could also use drawer.WriteDrawingTExt, but this feels nicer?
         with open(file_name, "wb") as file:
             file.write(drawer.GetDrawingText())
 
