@@ -16,7 +16,7 @@ def parse_identifiertype(idtype:str):
         return IdentifierType(idtype)
     except ValueError:
         return None
-
+# TEMP EDIT FOR CSV STINK
 def load_dataset(config):
     """use config to prep dataset objects"""
     data_path = config.get("data_source", None) # could move to get if not local.
@@ -26,7 +26,7 @@ def load_dataset(config):
     input_format = config.get("input_format", None)
     
     if config.get("data_islocal", False) == True:
-        data_table = pd.read_csv(data_path, sep = '\t', header = 0)
+        data_table = pd.read_csv(data_path, sep = ',', header = 0)
     else: # here fetch.
         data_table = pd.DataFrame([0])
     
@@ -45,7 +45,7 @@ def load_dataset(config):
     return dataset
 
 def main():
-    config_path:str = "config/config.yaml"
+    config_path:str = "config/lipo.yaml"
     with open(config_path,'r') as stream:
         config:dict = load(stream, Loader)
     print(config)
@@ -65,9 +65,9 @@ def main():
         map_folded[f"{bitlen}"] = dict(zip(smiles, [x.tolist() for x in fpgen_map.transform(smiles)]))
         secfp_folded[f"{bitlen}"] = dict(zip(smiles, [x.tolist() for x in fpgen_secfp.transform(smiles)]))
     # no indent, the human readable part.... 
-    with open("map4_folded.json", 'w') as file:
+    with open("map4_folded_bad.json", 'w') as file:
         json.dump(map_folded, file,)
-    with open("secfp6_folded.json", 'w') as file:
+    with open("secfp6_folded_lipo.json", 'w') as file:
         json.dump(secfp_folded,file)
 
 if __name__ == "__main__":

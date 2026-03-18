@@ -23,7 +23,7 @@ def load_dataset(config):
     input_format = config.get("input_format", None)
     
     if config.get("data_islocal", False) == True:
-        data_table = pd.read_csv(data_path, sep = '\t', header = 0)
+        data_table = pd.read_csv(data_path, sep = ',', header = 0)
     else: # here fetch.
         data_table = pd.DataFrame([0])
     
@@ -77,7 +77,7 @@ def run_split(i, split, split_identities, dataset, reptype, bit_len, mtype, mode
     return i, results
 
 def main():
-    config_path = "config/config.yaml"
+    config_path = "config/lipo.yaml"
     with open(config_path,'r') as stream:
         config = load(stream, Loader)
     test_fraction = config.get("test_fraction",0.2)
@@ -174,10 +174,10 @@ def main():
     print(mae_df)
 
     # warp dict for lazinesss.
-    with open("split_identities.json", "w") as f:
+    with open("split_identities_lipo.json", "w") as f:
         json.dump(dict(split_identities), f)
 
-    with open("model_results.json", "w") as f:
+    with open("model_results_lipo.json", "w") as f:
         json.dump(dict(resdic), f, indent=2)
 
 if __name__ == "__main__":

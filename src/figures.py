@@ -23,17 +23,17 @@ def fold_and_count(fp_list, n_bits=128):
     proportion = num_collisions / total_bits if total_bits else 0
     return set(folded), proportion
 def main():
-    model_output_path = "model_results.json"
+    model_output_path = "model_results_lipo.json"
     dataset_collisions_path = "dataset_collisions.json"
     self_collisions_path = "self_collisions.json"
-    split_identities_path = "split_identities.json"
+    split_identities_path = "split_identities_lipo.json"
     # Average runs, flag "has collisions", plot
     model_output = load_output(model_output_path)
-    self_collisons = load_output(self_collisions_path)
+    #self_collisons = load_output(self_collisions_path)
     split_identities = load_output(split_identities_path)
     # Folding collisions proportional to the set bits:
     
-
+    """
     # order is perseved to ID / pred 892 * bit len = total bits
     # proportion of (collided bits / total bits.)
     dataset_collisions = load_output(dataset_collisions_path)
@@ -184,6 +184,7 @@ def main():
 
     for enc, prop in collision_stats.items():
         print(f"{enc}: {prop:.4f}")
+    """
     rows = []
     for key, split_dict in model_output.items():
         model_type, encoding, bitlen = key.rsplit("_", 2)
@@ -227,9 +228,9 @@ def main():
         ax.grid(True, linestyle="--", alpha=0.5)
         
         fig.tight_layout()
-        fig.savefig(f"assets/mean_mae_{model_type}.png", dpi=300)
+        fig.savefig(f"assets/mean_mae_{model_type}_lipo.png", dpi=300)
         plt.close(fig)
-
+    """
     # BEST model ecfp "do collisions matter?"
     model_key = "xgb_ecfp4_256"
     # obscure previous split dict:
@@ -246,7 +247,7 @@ def main():
     print(len(test_smiles))
     print(len(y_p))
     assert len(test_smiles) == len(y_p) == len(y_truth), "Mismatch in test size"
-    
+      
     collision_key = "ecfp4_2048"
     collision_flags = collision_data[collision_key]
     colors = ["red" if collision_flags.get(smi, False) else "blue" for smi in test_smiles]
@@ -259,9 +260,9 @@ def main():
     plt.plot([min(y_truth), max(y_truth)], [min(y_truth), max(y_truth)], "k--")  # identity line
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("assets/pred_vs_truth_xgboost_ecfp4_2048.png", dpi=300)
+    plt.savefig("assets/pred_vs_truth_xgboost_ecfp4_2048_lipo.png", dpi=300)
     plt.close()
-
+    """
     df = pd.read_csv("data/cpd_data_soil_all_data.tsv", sep="\t")
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
