@@ -24,13 +24,17 @@ def fold_and_count(fp_list, n_bits=128):
     return set(folded), proportion
 def main():
     model_output_path = "model_results_lipo.json"
+    model_output_fraglen_path = "model_results_lipo_fraglen.json"
     dataset_collisions_path = "dataset_collisions.json"
     self_collisions_path = "self_collisions.json"
     split_identities_path = "split_identities_lipo.json"
+    split_identities_fraglen_path = "split_identities_lipo_fraglen.json"
     # Average runs, flag "has collisions", plot
     model_output = load_output(model_output_path)
+    model_output_fraglen = load_output(model_output_fraglen_path)
     #self_collisons = load_output(self_collisions_path)
     split_identities = load_output(split_identities_path)
+    split_identities_fraglen = load_output(split_identities_fraglen_path)
     # Folding collisions proportional to the set bits:
     
     """
@@ -283,5 +287,51 @@ def main():
     print("DT50_gmean:", np.mean(df['DT50_gmean']), np.std(df['DT50_gmean']))
     print("DT50_log_gmean:", np.mean(df['DT50_log_gmean']), np.std(df['DT50_log_gmean']))
 
+    rows = []
+    for key, split_dict in model_output_fraglen.items():
+        model_type, encoding, bitlen = key.rsplit("_", 2)
+        bitlen = int(bitlen)
+        for split_idx, metrics in split_dict.items():
+            mae = metrics.get("mae", None)
+            if mae is not None:
+                rows.append({
+                    "model_type": model_type,
+                    "encoding": encoding,
+                    "bits": bitlen,
+                    "split": int(split_idx),
+                    "mae": mae
+                })
+
+    df = pd.DataFrame(rows)
+
+    mean_mae_df = df.groupby(["model_type", "encoding", "bits"])["mae"].mean().reset_index()
+
+    for model_type, model_df in mean_mae_df.groupby("model_type"):
+        pivot_df = model_df.pivot(index="encoding", columns="bits", values="mae").sort_index(axis=1)
+        
+        fig, ax = plt.subplots(figsize=(8,5))
+        
+        styles = {
+            "ecfp4": {"linestyle": "-", "marker": "o", "color": "blue"},
+            "map4": {"linestyle": "--", "marker": "s", "color": "red"},
+            "rdkit": {"linestyle": "-.", "marker": "^", "color": "green"},
+            "secfp6": {"linestyle": ":", "marker": "v", "color": "orange"},
+        }
+        
+        for encoding, row in pivot_df.iterrows():
+            x = pivot_df.columns.tolist()
+            y = row.values.astype(float)
+            ax.plot(x, y, label=encoding, **styles.get(encoding, {"marker":"o"}))
+        
+        ax.set_xlabel("Fingerprint size (bits)")
+        ax.set_ylabel(f"Mean MAE across splits ({model_type})")
+        ax.set_xticks(pivot_df.columns)
+        ax.legend()
+        ax.grid(True, linestyle="--", alpha=0.5)
+
+
+        fig.tight_layout()
+        fig.savefig(f"assets/mean_mae_{model_type}_lipofragments.png", dpi=300)
+        plt.close(fig)
 if __name__ == "__main__":
     main()
