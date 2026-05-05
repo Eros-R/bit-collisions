@@ -1,0 +1,13 @@
+# general setup for full pipeline:
+data_islocal : True
+data_source : "data/lipo.csv" #relative path from main.
+input_col : "smiles"
+target_col : "exp"
+input_format : "smiles"
+encoding_types : ["rdkit","ecfp4","map4","secfp6"]
+bit_lengths : [128, 256,1024,2048,4096]
+models : ["randomforest", "xgb","nn"] #maybe good to keep this hardcoded in module level -> point to models.
+runs: 10 # folds or resamplings
+test_fraction: 0.1
+map4_folded_path : "map4_folded_lipo_native.json"
+secfp6_folded_path : "secfp6_folded_lipo.json"
