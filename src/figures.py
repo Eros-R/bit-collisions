@@ -54,7 +54,6 @@ def main():
     proportion_df = proportion_df.sort_index(axis=1)
 
     fig, ax = plt.subplots(figsize=(8,5))
-    # styles look shit
     styles = {
         "ecfp4": {"linestyle": "-", "marker": "o", "color": "blue"},
         "map4": {"linestyle": "-", "marker": "s", "color": "red"},
