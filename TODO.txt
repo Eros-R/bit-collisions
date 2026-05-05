@@ -1,6 +1,0 @@
-# TODO
-- check fold ratio of exclusive k-fold, only risk if the fold imbalance is too much (single scaffold dominating a fold)
-- add different Fingerprinting types, should be plug and play (if others allow to access unfolded (which they should (hopefully (please))))
-- first the numerical part of stuff. Module level of pred, same structure (match arm like for selection -> point to yamls for hprparameters)
-- Visuals
-
