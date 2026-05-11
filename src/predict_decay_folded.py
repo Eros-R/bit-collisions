@@ -93,7 +93,7 @@ def main():
     split_identities = {}
     for i, split in enumerate(split_list):
         i += 1
-        train, test =  split #holy fuck why did I invert this?
+        train, test =  split
         test_ids = [entry.id for entry in test._entries]
         train_ids = [entry.id for entry in train._entries]
         split_identities[f"split_{i}"] = {"test":test_ids,"train":train_ids}

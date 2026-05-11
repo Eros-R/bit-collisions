@@ -139,7 +139,6 @@ def main():
     # tie smiles to mols, for ez retrieval
     full_dataset = list(zip(smiles, [Chem.MolFromSmiles(smile) for smile in smiles]))
 
-    # fuck it, taking some other molecules, first ones suck 365
     dataset = full_dataset[234:]
 
     cross_collision = get_first_cross_collision(dataset)
