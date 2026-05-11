@@ -7,6 +7,7 @@ import pandas as pd
 
 import numpy as np
 import statsmodels.formula.api as smf
+import statsmodels.api as sm
 
 
 def load_output(json_path) -> Any:
@@ -62,6 +63,8 @@ def main() -> None:
     )
     hafner_result = model_hafner.fit()
     print(hafner_result.summary())
+    print(hafner_result.scale)
+    print(hafner_result.cov_re)
     model_lipo = smf.mixedlm(
         "mae ~ C(model) + C(fingerprint) * C(bits)",
         data = lipo_df,
@@ -69,6 +72,29 @@ def main() -> None:
     )
     lipo_result = model_lipo.fit()
     print(lipo_result.summary())
+    print(lipo_result.scale)
+    print(lipo_result.cov_re)
+    # since no big split interactions:
+    #
+    model_hafner = smf.ols(
+        "mae ~ C(model) + C(fingerprint) * C(bits) + C(split)",
+        data=hafner_df
+    ).fit()
+
+    print(model_hafner.summary())
+
+    anova_table_hafner = sm.stats.anova_lm(model_hafner, typ=2)
+    print(anova_table_hafner)
+
+    model_lipo = smf.ols(
+        "mae ~ C(model) + C(fingerprint) * C(bits) + C(split)",
+        data=lipo_df
+    ).fit()
+
+    print(model_lipo.summary())
+
+    anova_table_lipo = sm.stats.anova_lm(model_lipo, typ=2)
+    print(anova_table_lipo)
 
 if __name__ == "__main__":
     main()
