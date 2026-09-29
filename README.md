@@ -1,9 +1,9 @@
 # The occurence and effect of bit collisions  
 
-This repository contains the code for the paper "Size matters - how bit length of molecular fingerprints determines the reliability of computational tools in environmental chemistry and toxicology"
+This repository contains the code for the paper "Scoping when bit length of molecular fingerprints determines the reliability of computational tools in environmental chemistry and toxicology"
 
 
-## contents
+## Contents
 
 data folder - contains two of the used datasets: pesticide degradation & chemical inventory
 
